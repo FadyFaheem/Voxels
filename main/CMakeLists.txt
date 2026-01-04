@@ -2,7 +2,7 @@ set(LV_DEMO_DIR ../managed_components/lvgl__lvgl/demos)
 file(GLOB_RECURSE LV_DEMOS_SOURCES ${LV_DEMO_DIR}/*.c)
 
 idf_component_register(
-    SRCS main.c ${LV_DEMOS_SOURCES}
+    SRCS main.c wifi_ap.c web_server.c sd_format_ui.c splash_ui.c qr_ui.c ${LV_DEMOS_SOURCES}
     INCLUDE_DIRS . ${LV_DEMO_DIR}
     REQUIRES waveshare_bsp esp_wifi esp_netif esp_http_server nvs_flash sd_database
     EMBED_TXTFILES index.html)
