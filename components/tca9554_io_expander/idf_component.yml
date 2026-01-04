@@ -1,0 +1,4 @@
+dependencies:
+  espressif/esp_io_expander:
+    version: "*"
+
