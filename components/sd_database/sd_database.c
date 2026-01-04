@@ -344,4 +344,3 @@ esp_err_t sd_db_deinit(void)
     // Unmount SD card
     return bsp_sdcard_unmount();
 }
-

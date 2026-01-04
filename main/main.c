@@ -49,6 +49,9 @@ static lv_obj_t *format_dialog = NULL;
 static volatile bool format_confirmed = false;
 static volatile bool format_cancelled = false;
 
+// SD card status (stored after init, checked after splash screen)
+static sd_db_status_t saved_db_status = SD_DB_NOT_PRESENT;
+
 // QR code state: false = WiFi QR, true = URL QR (volatile for thread safety)
 static volatile bool showing_url_qr = false;
 static volatile bool transition_pending = false;
@@ -223,7 +226,8 @@ static void wifi_init_softap(void)
 
 // Forward declarations
 static void create_main_ui(void);
-static void continue_after_sd_init(void);
+static void show_format_dialog(void);
+static void perform_format_and_continue(void);
 
 // Format dialog button event handler
 static void format_btn_event_cb(lv_event_t *e)
@@ -347,56 +351,58 @@ static void format_dialog_check_cb(lv_timer_t *timer)
             lv_obj_set_style_text_color(msg, lv_color_hex(0xffffff), 0);
             lv_obj_center(msg);
         }
-        bsp_display_unlock();
         
-        // Perform format
-        sd_db_status_t status = sd_db_format_and_init();
-        
-        bsp_display_lock(0);
-        if (format_dialog) {
-            lv_obj_delete(format_dialog);
-            format_dialog = NULL;
-        }
-        
-        if (status == SD_DB_READY) {
-            ESP_LOGI(TAG, "SD card formatted and database initialized");
-        } else {
-            ESP_LOGE(TAG, "Failed to format SD card");
-        }
-        
-        // Continue with normal startup
-        continue_after_sd_init();
-        bsp_display_unlock();
+        // Schedule format operation (needs to happen outside LVGL timer for display update)
+        lv_timer_t *fmt_timer = lv_timer_create((lv_timer_cb_t)perform_format_and_continue, 100, NULL);
+        lv_timer_set_repeat_count(fmt_timer, 1);
         
     } else if (format_cancelled) {
         ESP_LOGI(TAG, "User cancelled format");
         lv_timer_delete(timer);
         
-        // Delete dialog
+        // Delete dialog and show QR code
         if (format_dialog) {
             lv_obj_delete(format_dialog);
             format_dialog = NULL;
         }
         
-        // Continue without SD card
         ESP_LOGW(TAG, "Continuing without SD card database");
-        continue_after_sd_init();
-        bsp_display_unlock();
+        create_main_ui();
     }
 }
 
-// Show format dialog and wait for user response
-static void show_format_dialog_and_wait(void)
+// Perform format operation and continue to main UI
+static void perform_format_and_continue(void)
+{
+    // Perform format
+    sd_db_status_t status = sd_db_format_and_init();
+    
+    // Delete dialog
+    if (format_dialog) {
+        lv_obj_delete(format_dialog);
+        format_dialog = NULL;
+    }
+    
+    if (status == SD_DB_READY) {
+        ESP_LOGI(TAG, "SD card formatted and database initialized");
+    } else {
+        ESP_LOGE(TAG, "Failed to format SD card");
+    }
+    
+    // Show QR code UI
+    create_main_ui();
+}
+
+// Show format dialog (called after splash screen if SD needs setup)
+static void show_format_dialog(void)
 {
     format_confirmed = false;
     format_cancelled = false;
     
-    bsp_display_lock(0);
     create_format_dialog();
     
-    // Create timer to check for response
+    // Timer will check for user response
     lv_timer_create(format_dialog_check_cb, 50, NULL);
-    // Note: display will be unlocked when timer finishes
 }
 
 // Actually update the QR code content (called after fade out)
@@ -498,6 +504,25 @@ static void do_qr_transition(bool to_url)
     lv_timer_set_repeat_count(fade_timer, 1);
 }
 
+// Called after splash fade to decide what to show next
+static void after_splash_transition(void)
+{
+    // Delete splash screen
+    if (splash_screen) {
+        lv_obj_delete(splash_screen);
+        splash_screen = NULL;
+    }
+    
+    // Check if SD card needs initialization
+    if (saved_db_status == SD_DB_NOT_INITIALIZED) {
+        ESP_LOGI(TAG, "Showing SD card format dialog");
+        show_format_dialog();
+    } else {
+        // Go directly to QR code UI
+        create_main_ui();
+    }
+}
+
 // Loading animation timer callback
 static void loading_timer_cb(lv_timer_t *timer)
 {
@@ -512,11 +537,11 @@ static void loading_timer_cb(lv_timer_t *timer)
         lv_timer_delete(timer);
         loading_timer = NULL;
         
-        // Small delay then transition to main UI
+        // Fade out splash screen
         lv_obj_fade_out(splash_screen, 300, 0);
         
-        // Create main UI after fade (run only once)
-        lv_timer_t *ui_timer = lv_timer_create((lv_timer_cb_t)create_main_ui, 350, NULL);
+        // Transition to next screen after fade (format dialog or QR code)
+        lv_timer_t *ui_timer = lv_timer_create((lv_timer_cb_t)after_splash_transition, 350, NULL);
         lv_timer_set_repeat_count(ui_timer, 1);
     }
 }
@@ -599,6 +624,12 @@ static void create_main_ui(void)
         splash_screen = NULL;
     }
     
+    // Delete format dialog if it exists
+    if (format_dialog) {
+        lv_obj_delete(format_dialog);
+        format_dialog = NULL;
+    }
+    
     // Get active screen
     lv_obj_t *scr = lv_screen_active();
     
@@ -677,23 +708,6 @@ static void create_main_ui(void)
     }
 }
 
-// Continue startup after SD card initialization (called after dialog or if no dialog needed)
-static void continue_after_sd_init(void)
-{
-    // Initialize WiFi AP
-    wifi_init_softap();
-    
-    // Start web server
-    start_webserver();
-    
-    // Show splash screen with loading animation
-    create_splash_screen();
-    
-    ESP_LOGI(TAG, "Application started successfully!");
-    ESP_LOGI(TAG, "Connect to WiFi '%s' with password '%s'", wifi_ap_ssid, WIFI_AP_PASS);
-    ESP_LOGI(TAG, "Then scan the QR code or visit http://%s", AP_IP_ADDR);
-}
-
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting Voxels QR Web Server...");
@@ -706,24 +720,16 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     
-    // Start display FIRST (needed for format dialog)
-    bsp_display_start();
+    // Initialize SD card database (save status for after splash screen)
+    saved_db_status = sd_db_init();
     
-    // Initialize SD card database
-    sd_db_status_t db_status = sd_db_init();
-    
-    switch (db_status) {
+    switch (saved_db_status) {
         case SD_DB_NOT_PRESENT:
             ESP_LOGW(TAG, "No SD card detected - running without database");
-            bsp_display_lock(0);
-            continue_after_sd_init();
-            bsp_display_unlock();
             break;
             
         case SD_DB_NOT_INITIALIZED:
-            ESP_LOGW(TAG, "SD card needs initialization - showing format dialog");
-            // Show format dialog (will call continue_after_sd_init when done)
-            show_format_dialog_and_wait();
+            ESP_LOGW(TAG, "SD card needs initialization - will prompt after splash");
             break;
             
         case SD_DB_READY:
@@ -736,17 +742,33 @@ void app_main(void)
             // Increment and save boot count
             sd_db_set_int("boot_count", boot_count + 1);
             sd_db_save();
-            
-            bsp_display_lock(0);
-            continue_after_sd_init();
-            bsp_display_unlock();
             break;
             
         case SD_DB_ERROR:
             ESP_LOGE(TAG, "SD card database error - running without database");
-            bsp_display_lock(0);
-            continue_after_sd_init();
-            bsp_display_unlock();
             break;
     }
+    
+    // Initialize WiFi AP
+    wifi_init_softap();
+    
+    // Start web server
+    start_webserver();
+    
+    // Start display
+    bsp_display_start();
+    
+    // Lock display for LVGL operations
+    bsp_display_lock(0);
+    
+    // Show splash screen with loading animation
+    // After splash completes, will check SD status and show format dialog if needed
+    create_splash_screen();
+    
+    // Unlock display
+    bsp_display_unlock();
+    
+    ESP_LOGI(TAG, "Application started successfully!");
+    ESP_LOGI(TAG, "Connect to WiFi '%s' with password '%s'", wifi_ap_ssid, WIFI_AP_PASS);
+    ESP_LOGI(TAG, "Then scan the QR code or visit http://%s", AP_IP_ADDR);
 }
