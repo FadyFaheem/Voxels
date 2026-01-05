@@ -1,6 +1,8 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -13,10 +15,18 @@ extern "C" {
  */
 
 /**
+ * @brief Temperature unit enumeration
+ */
+typedef enum {
+    WEATHER_TEMP_CELSIUS = 0,
+    WEATHER_TEMP_FAHRENHEIT = 1
+} weather_temp_unit_t;
+
+/**
  * @brief Weather data structure
  */
 typedef struct {
-    float temperature;        // Current temperature in Celsius
+    float temperature;        // Current temperature (in selected unit)
     float humidity;           // Relative humidity %
     float wind_speed;        // Wind speed in km/h
     int weather_code;         // WMO weather code
@@ -58,6 +68,19 @@ esp_err_t weather_service_fetch(weather_data_t *data);
  * @return ESP_OK if cached data is available and recent, ESP_FAIL otherwise
  */
 esp_err_t weather_service_get_cached(weather_data_t *data);
+
+/**
+ * @brief Set temperature unit preference
+ * @param unit Temperature unit (WEATHER_TEMP_CELSIUS or WEATHER_TEMP_FAHRENHEIT)
+ * @return ESP_OK on success
+ */
+esp_err_t weather_service_set_temp_unit(weather_temp_unit_t unit);
+
+/**
+ * @brief Get current temperature unit preference
+ * @return Current temperature unit
+ */
+weather_temp_unit_t weather_service_get_temp_unit(void);
 
 #ifdef __cplusplus
 }

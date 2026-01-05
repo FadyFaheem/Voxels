@@ -8,10 +8,16 @@
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+
+// Forward declaration for certificate bundle attach function
+// This is provided by mbedtls component when CONFIG_MBEDTLS_CERTIFICATE_BUNDLE is enabled
+extern esp_err_t esp_crt_bundle_attach(void *conf);
 
 static const char *TAG = "weather_service";
 
-#define OPEN_METEO_GEOCODING_API "https://api.open-meteo.com/v1/search"
+#define OPEN_METEO_GEOCODING_API "https://geocoding-api.open-meteo.com/v1/search"
 #define OPEN_METEO_FORECAST_API "https://api.open-meteo.com/v1/forecast"
 #define WEATHER_CACHE_TIMEOUT_SEC 600  // 10 minutes
 
@@ -19,6 +25,13 @@ static char zip_code[16] = {0};
 static weather_data_t cached_weather = {0};
 static float cached_latitude = 0.0f;
 static float cached_longitude = 0.0f;
+static weather_temp_unit_t temp_unit = WEATHER_TEMP_CELSIUS;  // Default to Celsius
+
+// Task and synchronization
+static TaskHandle_t weather_task_handle = NULL;
+static QueueHandle_t weather_fetch_queue = NULL;
+static SemaphoreHandle_t weather_data_mutex = NULL;
+static bool weather_task_running = false;
 
 // Structure to pass response buffer through event handler
 typedef struct {
@@ -34,7 +47,7 @@ static esp_err_t geocoding_http_event_handler(esp_http_client_event_t *evt)
 
     switch (evt->event_id) {
         case HTTP_EVENT_ON_DATA:
-            if (!esp_http_client_is_chunked_response(evt->client) && response) {
+            if (response) {
                 int len = evt->data_len;
                 if (response->buffer && (response->len + len) < response->max_len) {
                     memcpy(response->buffer + response->len, evt->data, len);
@@ -69,8 +82,12 @@ static esp_err_t geocode_zip_code(const char *zip, float *latitude, float *longi
     }
     encoded_zip[j] = '\0';
     
+    // Open-Meteo geocoding API expects 'name' parameter for location search
+    // For US zip codes, we can search directly or add country code
     snprintf(url, sizeof(url), "%s?name=%s&count=1&language=en&format=json", 
              OPEN_METEO_GEOCODING_API, encoded_zip);
+    
+    ESP_LOGI(TAG, "Geocoding URL: %s", url);
 
     ESP_LOGI(TAG, "Geocoding zip code: %s", zip);
 
@@ -86,7 +103,10 @@ static esp_err_t geocode_zip_code(const char *zip, float *latitude, float *longi
         .event_handler = geocoding_http_event_handler,
         .user_data = &response,
         .timeout_ms = 10000,
+        .transport_type = HTTP_TRANSPORT_OVER_SSL,
     };
+    // Use certificate bundle if available (configured via sdkconfig)
+    config.crt_bundle_attach = esp_crt_bundle_attach;
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
@@ -99,6 +119,10 @@ static esp_err_t geocode_zip_code(const char *zip, float *latitude, float *longi
         int status_code = esp_http_client_get_status_code(client);
         
         ESP_LOGI(TAG, "HTTP Status = %d, response length = %d", status_code, response.len);
+        
+        if (status_code != 200 && response.len > 0) {
+            ESP_LOGE(TAG, "Geocoding API error. Response: %.*s", response.len, response.buffer);
+        }
         
         if (status_code == 200 && response.len > 0) {
             // Parse JSON response
@@ -163,7 +187,7 @@ static esp_err_t weather_http_event_handler(esp_http_client_event_t *evt)
 
     switch (evt->event_id) {
         case HTTP_EVENT_ON_DATA:
-            if (!esp_http_client_is_chunked_response(evt->client) && response) {
+            if (response) {
                 int len = evt->data_len;
                 if (response->buffer && (response->len + len) < response->max_len) {
                     memcpy(response->buffer + response->len, evt->data, len);
@@ -182,9 +206,10 @@ static esp_err_t weather_http_event_handler(esp_http_client_event_t *evt)
 static esp_err_t fetch_weather_data(float latitude, float longitude, weather_data_t *data)
 {
     char url[512];
+    const char *temp_unit_str = (temp_unit == WEATHER_TEMP_FAHRENHEIT) ? "fahrenheit" : "celsius";
     snprintf(url, sizeof(url), 
-             "%s?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=auto",
-             OPEN_METEO_FORECAST_API, latitude, longitude);
+             "%s?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=%s&timezone=auto",
+             OPEN_METEO_FORECAST_API, latitude, longitude, temp_unit_str);
 
     ESP_LOGI(TAG, "Fetching weather data");
 
@@ -200,7 +225,10 @@ static esp_err_t fetch_weather_data(float latitude, float longitude, weather_dat
         .event_handler = weather_http_event_handler,
         .user_data = &response,
         .timeout_ms = 10000,
+        .transport_type = HTTP_TRANSPORT_OVER_SSL,
     };
+    // Use certificate bundle if available (configured via sdkconfig)
+    config.crt_bundle_attach = esp_crt_bundle_attach;
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
@@ -213,6 +241,10 @@ static esp_err_t fetch_weather_data(float latitude, float longitude, weather_dat
         int status_code = esp_http_client_get_status_code(client);
         
         ESP_LOGI(TAG, "HTTP Status = %d, response length = %d", status_code, response.len);
+        
+        if (status_code != 200 && response.len > 0) {
+            ESP_LOGE(TAG, "Weather API error. Response: %.*s", response.len, response.buffer);
+        }
         
         if (status_code == 200 && response.len > 0) {
             // Parse JSON response
@@ -260,6 +292,50 @@ static esp_err_t fetch_weather_data(float latitude, float longitude, weather_dat
     return ESP_FAIL;
 }
 
+// Weather fetch task (runs HTTP operations in background)
+static void weather_fetch_task(void *pvParameters)
+{
+    (void)pvParameters;
+    
+    while (weather_task_running) {
+        // Wait for fetch request
+        bool fetch_requested = false;
+        if (xQueueReceive(weather_fetch_queue, &fetch_requested, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            if (!fetch_requested) {
+                continue;
+            }
+            
+            if (strlen(zip_code) == 0) {
+                ESP_LOGW(TAG, "No zip code configured, skipping fetch");
+                continue;
+            }
+            
+            // Geocode zip code if needed
+            if (cached_latitude == 0.0f && cached_longitude == 0.0f) {
+                if (geocode_zip_code(zip_code, &cached_latitude, &cached_longitude) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to geocode zip code: %s", zip_code);
+                    continue;
+                }
+            }
+            
+            // Fetch weather data
+            weather_data_t weather = {0};
+            if (fetch_weather_data(cached_latitude, cached_longitude, &weather) == ESP_OK) {
+                // Update cached data with mutex protection
+                if (xSemaphoreTake(weather_data_mutex, portMAX_DELAY) == pdTRUE) {
+                    memcpy(&cached_weather, &weather, sizeof(weather_data_t));
+                    xSemaphoreGive(weather_data_mutex);
+                }
+                // Notify UI to refresh weather widget
+                extern void ui_state_refresh(void);
+                ui_state_refresh();
+            }
+        }
+    }
+    
+    vTaskDelete(NULL);
+}
+
 static void load_zip_code(void)
 {
     if (sd_db_is_ready()) {
@@ -268,6 +344,31 @@ static void load_zip_code(void)
                 ESP_LOGI(TAG, "Loaded zip code from storage: %s", zip_code);
             }
         }
+    }
+}
+
+static void load_temp_unit(void)
+{
+    if (sd_db_is_ready()) {
+        char temp_unit_str[16];
+        if (sd_db_get_string("weather_temp_unit", temp_unit_str, sizeof(temp_unit_str)) == ESP_OK) {
+            if (strcmp(temp_unit_str, "fahrenheit") == 0) {
+                temp_unit = WEATHER_TEMP_FAHRENHEIT;
+            } else {
+                temp_unit = WEATHER_TEMP_CELSIUS;  // Default to Celsius
+            }
+            ESP_LOGI(TAG, "Loaded temperature unit: %s", temp_unit_str);
+        }
+    }
+}
+
+static void save_temp_unit(void)
+{
+    if (sd_db_is_ready()) {
+        const char *temp_unit_str = (temp_unit == WEATHER_TEMP_FAHRENHEIT) ? "fahrenheit" : "celsius";
+        sd_db_set_string("weather_temp_unit", temp_unit_str);
+        sd_db_save();
+        ESP_LOGI(TAG, "Saved temperature unit to storage: %s", temp_unit_str);
     }
 }
 
@@ -283,7 +384,40 @@ static void save_zip_code(void)
 void weather_service_init(void)
 {
     load_zip_code();
+    load_temp_unit();
     memset(&cached_weather, 0, sizeof(cached_weather));
+    
+    // Create mutex for thread-safe access to cached weather data
+    weather_data_mutex = xSemaphoreCreateMutex();
+    if (weather_data_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create weather data mutex");
+        return;
+    }
+    
+    // Create queue for fetch requests
+    weather_fetch_queue = xQueueCreate(5, sizeof(bool));
+    if (weather_fetch_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create weather fetch queue");
+        return;
+    }
+    
+    // Create background task for HTTP operations
+    weather_task_running = true;
+    BaseType_t ret = xTaskCreate(
+        weather_fetch_task,
+        "weather_fetch",
+        8192,  // Stack size
+        NULL,
+        5,     // Priority
+        &weather_task_handle
+    );
+    
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create weather fetch task");
+        weather_task_running = false;
+        return;
+    }
+    
     ESP_LOGI(TAG, "Weather service initialized");
 }
 
@@ -328,22 +462,14 @@ esp_err_t weather_service_fetch(weather_data_t *data)
         return ESP_ERR_INVALID_STATE;
     }
     
-    // Geocode zip code if we don't have coordinates cached
-    if (cached_latitude == 0.0f && cached_longitude == 0.0f) {
-        if (geocode_zip_code(zip_code, &cached_latitude, &cached_longitude) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to geocode zip code: %s", zip_code);
-            return ESP_FAIL;
-        }
+    // Request fetch from background task (non-blocking)
+    bool fetch_request = true;
+    if (weather_fetch_queue != NULL) {
+        xQueueSend(weather_fetch_queue, &fetch_request, 0);  // Non-blocking
     }
     
-    // Fetch weather data
-    if (fetch_weather_data(cached_latitude, cached_longitude, data) == ESP_OK) {
-        // Cache the data
-        memcpy(&cached_weather, data, sizeof(weather_data_t));
-        return ESP_OK;
-    }
-    
-    return ESP_FAIL;
+    // Return cached data immediately (if available)
+    return weather_service_get_cached(data);
 }
 
 esp_err_t weather_service_get_cached(weather_data_t *data)
@@ -352,18 +478,50 @@ esp_err_t weather_service_get_cached(weather_data_t *data)
         return ESP_ERR_INVALID_ARG;
     }
     
-    if (!cached_weather.valid) {
-        return ESP_FAIL;
+    // Get cached data with mutex protection
+    if (weather_data_mutex != NULL && xSemaphoreTake(weather_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        bool valid = cached_weather.valid;
+        if (valid) {
+            // Check if cache is still valid (within timeout)
+            uint32_t now = (uint32_t)time(NULL);
+            if (now - cached_weather.timestamp > WEATHER_CACHE_TIMEOUT_SEC) {
+                ESP_LOGI(TAG, "Weather cache expired");
+                valid = false;
+            } else {
+                memcpy(data, &cached_weather, sizeof(weather_data_t));
+            }
+        }
+        xSemaphoreGive(weather_data_mutex);
+        
+        return valid ? ESP_OK : ESP_FAIL;
     }
     
-    // Check if cache is still valid (within timeout)
-    uint32_t now = (uint32_t)time(NULL);
-    if (now - cached_weather.timestamp > WEATHER_CACHE_TIMEOUT_SEC) {
-        ESP_LOGI(TAG, "Weather cache expired");
-        return ESP_FAIL;
+    return ESP_FAIL;
+}
+
+esp_err_t weather_service_set_temp_unit(weather_temp_unit_t unit)
+{
+    if (unit != WEATHER_TEMP_CELSIUS && unit != WEATHER_TEMP_FAHRENHEIT) {
+        return ESP_ERR_INVALID_ARG;
     }
     
-    memcpy(data, &cached_weather, sizeof(weather_data_t));
+    temp_unit = unit;
+    save_temp_unit();
+    
+    // Clear cached weather data so it will be refetched with new unit
+    if (weather_data_mutex != NULL && xSemaphoreTake(weather_data_mutex, portMAX_DELAY) == pdTRUE) {
+        memset(&cached_weather, 0, sizeof(weather_data_t));
+        cached_latitude = 0.0f;
+        cached_longitude = 0.0f;
+        xSemaphoreGive(weather_data_mutex);
+    }
+    
+    ESP_LOGI(TAG, "Temperature unit set to: %s", (unit == WEATHER_TEMP_FAHRENHEIT) ? "Fahrenheit" : "Celsius");
     return ESP_OK;
+}
+
+weather_temp_unit_t weather_service_get_temp_unit(void)
+{
+    return temp_unit;
 }
 

@@ -935,6 +935,85 @@ static esp_err_t weather_zip_post_handler(httpd_req_t *req)
     
     cJSON_Delete(json);
     
+    ui_state_refresh(); // Notify UI to refresh weather widget
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
+// Weather temperature unit API handlers
+static esp_err_t weather_temp_unit_get_handler(httpd_req_t *req)
+{
+    weather_temp_unit_t unit = weather_service_get_temp_unit();
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "temp_unit", (unit == WEATHER_TEMP_FAHRENHEIT) ? "fahrenheit" : "celsius");
+    
+    char *response = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, response);
+    free(response);
+    return ESP_OK;
+}
+
+static esp_err_t weather_temp_unit_post_handler(httpd_req_t *req)
+{
+    if (req->content_len > MAX_POST_SIZE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+    
+    char *buf = malloc(req->content_len + 1);
+    if (!buf) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    int received = httpd_req_recv(req, buf, req->content_len);
+    if (received <= 0) {
+        free(buf);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    buf[received] = '\0';
+    
+    cJSON *json = cJSON_Parse(buf);
+    free(buf);
+    
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    cJSON *unit_item = cJSON_GetObjectItem(json, "temp_unit");
+    if (!unit_item || !cJSON_IsString(unit_item)) {
+        cJSON_Delete(json);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid temp_unit");
+        return ESP_FAIL;
+    }
+    
+    const char *unit_str = cJSON_GetStringValue(unit_item);
+    weather_temp_unit_t unit;
+    if (strcmp(unit_str, "fahrenheit") == 0) {
+        unit = WEATHER_TEMP_FAHRENHEIT;
+    } else if (strcmp(unit_str, "celsius") == 0) {
+        unit = WEATHER_TEMP_CELSIUS;
+    } else {
+        cJSON_Delete(json);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid temp_unit (must be 'celsius' or 'fahrenheit')");
+        return ESP_FAIL;
+    }
+    
+    esp_err_t ret = weather_service_set_temp_unit(unit);
+    cJSON_Delete(json);
+    
+    if (ret != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to set temperature unit");
+        return ESP_FAIL;
+    }
+    
+    ui_state_refresh(); // Notify UI to refresh weather widget
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
     return ESP_OK;
@@ -1159,6 +1238,23 @@ httpd_handle_t web_server_start(void)
             .user_ctx  = NULL
         };
         httpd_register_uri_handler(server, &weather_data_get_uri);
+
+        // Weather temperature unit API
+        httpd_uri_t weather_temp_unit_get_uri = {
+            .uri       = "/api/weather/temp-unit",
+            .method    = HTTP_GET,
+            .handler   = weather_temp_unit_get_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &weather_temp_unit_get_uri);
+
+        httpd_uri_t weather_temp_unit_post_uri = {
+            .uri       = "/api/weather/temp-unit",
+            .method    = HTTP_POST,
+            .handler   = weather_temp_unit_post_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &weather_temp_unit_post_uri);
         
         // Widget API - GET list
         httpd_uri_t widgets_get_uri = {

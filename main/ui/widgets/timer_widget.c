@@ -83,7 +83,14 @@ static void timer_widget_show(void)
     time_label = lv_label_create(timer_container);
     char time_str[32];
     if (timer_config.mode == TIMER_MODE_COUNTDOWN) {
-        format_time(timer_config.duration_seconds, time_str, sizeof(time_str));
+        // If timer is stopped/paused, show initial duration; if running, show current duration
+        int display_seconds = (timer_config.running || timer_config.paused) ? 
+                              timer_config.duration_seconds : timer_config.initial_duration_seconds;
+        format_time(display_seconds, time_str, sizeof(time_str));
+        // Also update current duration if stopped
+        if (!timer_config.running && !timer_config.paused) {
+            timer_config.duration_seconds = timer_config.initial_duration_seconds;
+        }
     } else {
         format_time(timer_config.elapsed_seconds, time_str, sizeof(time_str));
     }
@@ -96,8 +103,11 @@ static void timer_widget_show(void)
     if (timer_config.mode == TIMER_MODE_COUNTDOWN) {
         progress_bar = lv_bar_create(timer_container);
         lv_obj_set_size(progress_bar, 300, 20);
-        lv_bar_set_range(progress_bar, 0, timer_config.duration_seconds);
-        lv_bar_set_value(progress_bar, timer_config.duration_seconds, LV_ANIM_OFF);
+        int max_duration = timer_config.initial_duration_seconds;
+        lv_bar_set_range(progress_bar, 0, max_duration);
+        int current_value = (timer_config.running || timer_config.paused) ? 
+                           timer_config.duration_seconds : timer_config.initial_duration_seconds;
+        lv_bar_set_value(progress_bar, current_value, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(progress_bar, lv_color_hex(0x2a2a4e), LV_PART_MAIN);
         lv_obj_set_style_bg_color(progress_bar, WIDGET_COLOR_ACCENT, LV_PART_INDICATOR);
         lv_obj_set_style_margin_bottom(progress_bar, 20, 0);
@@ -350,11 +360,12 @@ static void load_config(void)
     
     item = cJSON_GetObjectItem(json, "duration_seconds");
     if (item && cJSON_IsNumber(item)) {
-        timer_config.duration_seconds = item->valueint;
+        timer_config.initial_duration_seconds = item->valueint;
+        timer_config.duration_seconds = item->valueint;  // Restore current duration from saved
     }
     
     cJSON_Delete(json);
-    ESP_LOGI(TAG, "Timer config loaded");
+    ESP_LOGI(TAG, "Timer config loaded: duration=%d", timer_config.initial_duration_seconds);
 }
 
 static void save_config(void)
@@ -365,7 +376,8 @@ static void save_config(void)
     
     cJSON *json = cJSON_CreateObject();
     cJSON_AddStringToObject(json, "mode", timer_config.mode == TIMER_MODE_STOPWATCH ? "stopwatch" : "countdown");
-    cJSON_AddNumberToObject(json, "duration_seconds", timer_config.duration_seconds);
+    // Save the initial duration (the value to restore on reset), not the current running duration
+    cJSON_AddNumberToObject(json, "duration_seconds", timer_config.initial_duration_seconds);
     
     char *json_str = cJSON_PrintUnformatted(json);
     if (json_str) {
@@ -375,13 +387,14 @@ static void save_config(void)
     }
     
     cJSON_Delete(json);
+    ESP_LOGI(TAG, "Timer config saved: duration=%d", timer_config.initial_duration_seconds);
 }
 
 static cJSON* timer_widget_get_config(void)
 {
     cJSON *json = cJSON_CreateObject();
     cJSON_AddStringToObject(json, "mode", timer_config.mode == TIMER_MODE_STOPWATCH ? "stopwatch" : "countdown");
-    cJSON_AddNumberToObject(json, "duration_seconds", timer_config.duration_seconds);
+    cJSON_AddNumberToObject(json, "duration_seconds", timer_config.initial_duration_seconds);  // Return saved duration
     cJSON_AddBoolToObject(json, "running", timer_config.running);
     cJSON_AddBoolToObject(json, "paused", timer_config.paused);
     return json;
@@ -442,7 +455,7 @@ static void start_pause_btn_event_cb(lv_event_t *e)
         
         // For countdown, ensure we don't go below 0
         if (timer_config.mode == TIMER_MODE_COUNTDOWN && timer_config.duration_seconds <= 0) {
-            timer_config.duration_seconds = 300; // Reset to 5 minutes if at 0
+            timer_config.duration_seconds = timer_config.initial_duration_seconds; // Reset to saved duration if at 0
         }
         
         ESP_LOGI(TAG, "Timer %s", timer_config.paused ? "resumed" : "started");
@@ -466,15 +479,15 @@ static void reset_btn_event_cb(lv_event_t *e)
     timer_config.paused = false;
     
     if (timer_config.mode == TIMER_MODE_COUNTDOWN) {
-        // Reset to saved duration (or default)
-        timer_config.duration_seconds = 300; // Default 5 minutes
+        // Reset to saved initial duration
+        timer_config.duration_seconds = timer_config.initial_duration_seconds;
         if (time_label) {
             char time_str[32];
             format_time(timer_config.duration_seconds, time_str, sizeof(time_str));
             lv_label_set_text(time_label, time_str);
         }
         if (progress_bar) {
-            lv_bar_set_range(progress_bar, 0, timer_config.duration_seconds);
+            lv_bar_set_range(progress_bar, 0, timer_config.initial_duration_seconds);
             lv_bar_set_value(progress_bar, timer_config.duration_seconds, LV_ANIM_OFF);
         }
     } else {
@@ -505,13 +518,16 @@ static void time_adjust_btn_event_cb(lv_event_t *e)
     
     bsp_display_lock(0);
     
-    timer_config.duration_seconds += seconds;
+    timer_config.initial_duration_seconds += seconds;
+    timer_config.duration_seconds = timer_config.initial_duration_seconds;  // Update current duration too
     
     // Clamp to reasonable values (0 to 99:59:59)
-    if (timer_config.duration_seconds < 0) {
+    if (timer_config.initial_duration_seconds < 0) {
+        timer_config.initial_duration_seconds = 0;
         timer_config.duration_seconds = 0;
-    } else if (timer_config.duration_seconds > 359999) {
-        timer_config.duration_seconds = 359999; // 99:59:59
+    } else if (timer_config.initial_duration_seconds > 359999) {
+        timer_config.initial_duration_seconds = 359999; // 99:59:59
+        timer_config.duration_seconds = 359999;
     }
     
     // Update display
@@ -522,7 +538,7 @@ static void time_adjust_btn_event_cb(lv_event_t *e)
     }
     
     if (progress_bar) {
-        lv_bar_set_range(progress_bar, 0, timer_config.duration_seconds);
+        lv_bar_set_range(progress_bar, 0, timer_config.initial_duration_seconds);
         lv_bar_set_value(progress_bar, timer_config.duration_seconds, LV_ANIM_OFF);
     }
     
@@ -543,7 +559,8 @@ static void timer_widget_set_config(cJSON *cfg)
     
     item = cJSON_GetObjectItem(cfg, "duration_seconds");
     if (item && cJSON_IsNumber(item)) {
-        timer_config.duration_seconds = item->valueint;
+        timer_config.initial_duration_seconds = item->valueint;
+        timer_config.duration_seconds = item->valueint;  // Update current duration too
     }
     
     item = cJSON_GetObjectItem(cfg, "running");

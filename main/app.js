@@ -501,6 +501,8 @@ async function loadWidgetConfig(widgetId) {
       renderClockConfig(config, configPanel);
     } else if (widgetId === "timer") {
       renderTimerConfig(config, configPanel);
+    } else if (widgetId === "weather") {
+      renderWeatherConfig(config, configPanel);
     }
   } catch (err) {
     console.error("Error loading widget config:", err);
@@ -626,6 +628,105 @@ function renderTimerConfig(config, panel) {
   };
 }
 
+function renderWeatherConfig(config, panel) {
+  if (!panel) return;
+
+  // Load current weather settings
+  (async () => {
+    try {
+      const zipData = await api.getWeatherZipCode();
+      const tempUnitData = await api.getWeatherTempUnit();
+
+      const zipCode = zipData.zip_code || "";
+      const tempUnit = tempUnitData.temp_unit || "celsius";
+
+      panel.innerHTML = `
+        <h2>Weather Settings</h2>
+        <div class="config-group">
+          <label for="weatherZipCode">Zip Code</label>
+          <input
+            type="text"
+            id="weatherZipCode"
+            name="weather_zip_code"
+            placeholder="90210"
+            maxlength="10"
+            value="${zipCode}"
+          />
+          <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+            Enter your zip code or postal code for weather data.
+          </p>
+        </div>
+
+        <div class="config-group">
+          <label for="weatherTempUnit">Temperature Unit</label>
+          <select id="weatherTempUnit" name="weather_temp_unit">
+            <option value="celsius" ${
+              tempUnit === "celsius" ? "selected" : ""
+            }>Celsius (°C)</option>
+            <option value="fahrenheit" ${
+              tempUnit === "fahrenheit" ? "selected" : ""
+            }>Fahrenheit (°F)</option>
+          </select>
+          <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+            Select the temperature unit for weather display.
+          </p>
+        </div>
+        <button class="btn" onclick="saveWeatherConfig()">Apply</button>
+      `;
+    } catch (err) {
+      console.error("Error loading weather config:", err);
+      panel.innerHTML = `
+        <h2>Weather Settings</h2>
+        <div class="config-group">
+          <label for="weatherZipCode">Zip Code</label>
+          <input
+            type="text"
+            id="weatherZipCode"
+            name="weather_zip_code"
+            placeholder="90210"
+            maxlength="10"
+          />
+          <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+            Enter your zip code or postal code for weather data.
+          </p>
+        </div>
+
+        <div class="config-group">
+          <label for="weatherTempUnit">Temperature Unit</label>
+          <select id="weatherTempUnit" name="weather_temp_unit">
+            <option value="celsius" selected>Celsius (°C)</option>
+            <option value="fahrenheit">Fahrenheit (°F)</option>
+          </select>
+          <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+            Select the temperature unit for weather display.
+          </p>
+        </div>
+        <button class="btn" onclick="saveWeatherConfig()">Apply</button>
+      `;
+    }
+  })();
+
+  window.saveWeatherConfig = async function () {
+    const zipCode = document.getElementById("weatherZipCode").value.trim();
+    const tempUnit = document.getElementById("weatherTempUnit").value;
+
+    try {
+      if (zipCode) {
+        await api.setWeatherZipCode(zipCode);
+      }
+      await api.setWeatherTempUnit(tempUnit);
+      showToast(
+        "Settings Saved",
+        "Weather settings saved successfully!",
+        "success"
+      );
+    } catch (err) {
+      showToast("Error", "Failed to save weather settings", "error");
+      console.error("Error saving weather config:", err);
+    }
+  };
+}
+
 // Settings section initialization
 async function initSettingsSection() {
   try {
@@ -638,17 +739,6 @@ async function initSettingsSection() {
     }
     if (wifiSsidInput && configData.wifi_ssid) {
       wifiSsidInput.value = configData.wifi_ssid;
-    }
-
-    // Load current weather zip code
-    try {
-      const zipData = await api.getWeatherZipCode();
-      const zipCodeInput = document.getElementById("weatherZipCode");
-      if (zipCodeInput && zipData.zip_code) {
-        zipCodeInput.value = zipData.zip_code;
-      }
-    } catch (err) {
-      console.error("Error loading weather zip code:", err);
     }
 
     // Load current timezone
@@ -682,9 +772,6 @@ async function initSettingsSection() {
         const deviceName = document.getElementById("deviceName").value.trim();
         const wifiSsid = document.getElementById("wifiSsid").value.trim();
         const wifiPass = document.getElementById("wifiPass").value;
-        const weatherZipCode = document
-          .getElementById("weatherZipCode")
-          .value.trim();
         const timezone = document.getElementById("timezone").value;
         const fontSize = parseInt(document.getElementById("fontSize").value);
 
@@ -702,11 +789,6 @@ async function initSettingsSection() {
           }
           if (Object.keys(configData).length > 0) {
             await api.saveConfig(configData);
-          }
-
-          // Save weather zip code if provided
-          if (weatherZipCode) {
-            await api.setWeatherZipCode(weatherZipCode);
           }
 
           // Save timezone and font size

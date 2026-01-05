@@ -92,4 +92,12 @@ const api = {
   async getWeatherData() {
     return this.get("/api/weather/data");
   },
+
+  async getWeatherTempUnit() {
+    return this.get("/api/weather/temp-unit");
+  },
+
+  async setWeatherTempUnit(tempUnit) {
+    return this.post("/api/weather/temp-unit", { temp_unit: tempUnit });
+  },
 };
