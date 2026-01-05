@@ -4,6 +4,52 @@
 let currentSection = "setup";
 let setupComplete = false;
 
+// Toast notification system
+function showToast(title, message, type = "info", duration = 3000) {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+
+  const icons = {
+    success: "✓",
+    error: "✕",
+    warning: "⚠",
+    info: "ℹ",
+  };
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || icons.info}</span>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      ${message ? `<div class="toast-message">${message}</div>` : ""}
+    </div>
+    <button class="toast-close" aria-label="Close">×</button>
+  `;
+
+  const closeBtn = toast.querySelector(".toast-close");
+  const closeToast = () => {
+    toast.classList.add("hiding");
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  };
+
+  closeBtn.addEventListener("click", closeToast);
+
+  container.appendChild(toast);
+
+  // Auto-remove after duration
+  if (duration > 0) {
+    setTimeout(closeToast, duration);
+  }
+
+  return toast;
+}
+
 // Update navigation visibility based on setup status
 function updateNavigationVisibility() {
   const setupLink = document.getElementById("nav-setup");
@@ -372,6 +418,12 @@ function initSetupSection() {
         });
 
         showSuccessScreen(deviceName, wifiSsid);
+        showToast(
+          "Setup Complete",
+          "Device configuration saved successfully!",
+          "success",
+          5000
+        );
 
         // Check if setup is now complete and update navigation
         setTimeout(async () => {
@@ -388,8 +440,14 @@ function initSetupSection() {
       } catch (err) {
         msg.textContent = "Failed to save settings. Please try again.";
         msg.className = "message error";
+        showToast(
+          "Error",
+          "Failed to save settings. Please try again.",
+          "error"
+        );
         btn.disabled = false;
         btn.textContent = "Save & Connect";
+        console.error("Error saving setup:", err);
       }
     });
   }
@@ -511,9 +569,13 @@ function renderClockConfig(config, panel) {
         show_seconds: showSeconds,
         is_24h: is24h,
       });
-      alert("Clock settings saved!");
+      showToast(
+        "Settings Saved",
+        "Clock settings saved successfully!",
+        "success"
+      );
     } catch (err) {
-      alert("Failed to save settings");
+      showToast("Error", "Failed to save clock settings", "error");
     }
   };
 }
@@ -553,9 +615,13 @@ function renderTimerConfig(config, panel) {
       "countdown";
     try {
       await api.setWidgetConfig("timer", { mode: mode });
-      alert("Timer settings saved!");
+      showToast(
+        "Settings Saved",
+        "Timer settings saved successfully!",
+        "success"
+      );
     } catch (err) {
-      alert("Failed to save settings");
+      showToast("Error", "Failed to save timer settings", "error");
     }
   };
 }
@@ -563,11 +629,40 @@ function renderTimerConfig(config, panel) {
 // Settings section initialization
 async function initSettingsSection() {
   try {
+    // Load current device config (device name, WiFi SSID)
+    const configData = await api.getConfig();
+    const deviceNameInput = document.getElementById("deviceName");
+    const wifiSsidInput = document.getElementById("wifiSsid");
+    if (deviceNameInput && configData.device_name) {
+      deviceNameInput.value = configData.device_name;
+    }
+    if (wifiSsidInput && configData.wifi_ssid) {
+      wifiSsidInput.value = configData.wifi_ssid;
+    }
+
+    // Load current weather zip code
+    try {
+      const zipData = await api.getWeatherZipCode();
+      const zipCodeInput = document.getElementById("weatherZipCode");
+      if (zipCodeInput && zipData.zip_code) {
+        zipCodeInput.value = zipData.zip_code;
+      }
+    } catch (err) {
+      console.error("Error loading weather zip code:", err);
+    }
+
     // Load current timezone
     const tzData = await api.getTimezone();
     const timezoneSelect = document.getElementById("timezone");
     if (timezoneSelect && tzData.timezone) {
       timezoneSelect.value = tzData.timezone;
+    }
+
+    // Load current font size
+    const fontSizeData = await api.getFontSize();
+    const fontSizeSelect = document.getElementById("fontSize");
+    if (fontSizeSelect && fontSizeData.font_size !== undefined) {
+      fontSizeSelect.value = fontSizeData.font_size.toString();
     }
 
     // Setup form handler
@@ -584,21 +679,108 @@ async function initSettingsSection() {
         msg.className = "message";
         msg.style.display = "none";
 
+        const deviceName = document.getElementById("deviceName").value.trim();
+        const wifiSsid = document.getElementById("wifiSsid").value.trim();
+        const wifiPass = document.getElementById("wifiPass").value;
+        const weatherZipCode = document
+          .getElementById("weatherZipCode")
+          .value.trim();
         const timezone = document.getElementById("timezone").value;
+        const fontSize = parseInt(document.getElementById("fontSize").value);
 
         try {
+          // Save device name and WiFi settings if provided
+          const configData = {};
+          if (deviceName) {
+            configData.device_name = deviceName;
+          }
+          if (wifiSsid) {
+            configData.wifi_ssid = wifiSsid;
+          }
+          if (wifiPass) {
+            configData.wifi_pass = wifiPass;
+          }
+          if (Object.keys(configData).length > 0) {
+            await api.saveConfig(configData);
+          }
+
+          // Save weather zip code if provided
+          if (weatherZipCode) {
+            await api.setWeatherZipCode(weatherZipCode);
+          }
+
+          // Save timezone and font size
           await api.setTimezone(timezone);
+          await api.setFontSize(fontSize);
+
           msg.textContent = "Settings saved successfully!";
           msg.className = "message success";
           msg.style.display = "block";
+          showToast(
+            "Settings Saved",
+            "All settings saved successfully!",
+            "success"
+          );
+
+          // Clear WiFi password field after successful save
+          if (wifiPass) {
+            document.getElementById("wifiPass").value = "";
+          }
         } catch (err) {
           msg.textContent = "Failed to save settings. Please try again.";
           msg.className = "message error";
           msg.style.display = "block";
+          showToast(
+            "Error",
+            "Failed to save settings. Please try again.",
+            "error"
+          );
+          console.error("Error saving settings:", err);
         }
 
         btn.disabled = false;
         btn.textContent = "Save Settings";
+      });
+    }
+
+    // Setup factory reset handler
+    const factoryResetBtn = document.getElementById("factoryResetBtn");
+    if (factoryResetBtn) {
+      factoryResetBtn.addEventListener("click", () => {
+        if (
+          confirm(
+            "Are you sure you want to factory reset? This will erase all settings and restart the device. This action cannot be undone."
+          )
+        ) {
+          if (
+            confirm(
+              "This will delete all your settings and restart the device. Are you absolutely sure?"
+            )
+          ) {
+            factoryResetBtn.disabled = true;
+            factoryResetBtn.textContent = "Resetting...";
+            api
+              .factoryReset()
+              .then(() => {
+                showToast(
+                  "Factory Reset",
+                  "Device will restart shortly.",
+                  "info",
+                  5000
+                );
+              })
+              .catch((err) => {
+                showToast(
+                  "Error",
+                  "Failed to perform factory reset. Please try again.",
+                  "error"
+                );
+                factoryResetBtn.disabled = false;
+                factoryResetBtn.textContent = "Factory Reset";
+                console.error("Factory reset error:", err);
+              });
+          }
+        }
       });
     }
   } catch (err) {

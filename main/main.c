@@ -12,6 +12,7 @@
 #include "core/time_sync.h"
 #include "core/ui_state.h"
 #include "core/font_size.h"
+#include "core/weather_service.h"
 #include "sd_database.h"
 #include "ui/screens/sd_format_ui.h"
 #include "ui/screens/splash_ui.h"
@@ -239,6 +240,9 @@ void app_main(void)
     
     // Initialize font size manager
     font_size_init();
+    
+    // Initialize weather service
+    weather_service_init();
     
     // Initialize widget manager and register widgets
     widget_manager_init();

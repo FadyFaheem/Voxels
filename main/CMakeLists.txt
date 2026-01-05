@@ -6,7 +6,7 @@ file(GLOB WIDGET_SOURCES ui/widgets/*.c)
 idf_component_register(
     SRCS main.c ${CORE_SOURCES} ${SCREEN_SOURCES} ${WIDGET_SOURCES}
     INCLUDE_DIRS . core ui/screens ui/widgets
-    REQUIRES waveshare_bsp esp_wifi esp_netif esp_http_server nvs_flash sd_database json
+    REQUIRES waveshare_bsp esp_wifi esp_netif esp_http_server esp_http_client nvs_flash sd_database json
     EMBED_TXTFILES 
         index.html
         setup.html

@@ -105,22 +105,30 @@ static void clock_widget_show(void)
 
 static void clock_widget_hide(void)
 {
+    bsp_display_lock(0);
+    
+    // Stop timer first
     if (clock_timer) {
         lv_timer_delete(clock_timer);
         clock_timer = NULL;
     }
     
-    if (clock_container) {
-        lv_obj_delete(clock_container);
-        clock_container = NULL;
-    }
-    
+    // Clear pointers before deletion to prevent callback from accessing deleted objects
+    lv_obj_t *container_to_delete = clock_container;
+    clock_container = NULL;
     time_label = NULL;
     date_label = NULL;
     analog_face = NULL;
     hour_hand = NULL;
     minute_hand = NULL;
     second_hand = NULL;
+    
+    // Delete container after clearing pointers
+    if (container_to_delete) {
+        lv_obj_delete(container_to_delete);
+    }
+    
+    bsp_display_unlock();
     
     ESP_LOGI(TAG, "Clock widget hidden");
 }
@@ -351,7 +359,18 @@ static void clock_update_cb(lv_timer_t *timer)
 {
     (void)timer;
     
+    // Check if widget is still active
+    if (!clock_container) {
+        return;
+    }
+    
     bsp_display_lock(0);
+    
+    // Double-check after acquiring lock (widget might have been hidden)
+    if (!clock_container) {
+        bsp_display_unlock();
+        return;
+    }
     
     if (clock_config.mode == CLOCK_MODE_DIGITAL) {
         update_digital_display();

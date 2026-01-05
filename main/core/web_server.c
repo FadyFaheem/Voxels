@@ -2,6 +2,8 @@
 #include "widget_manager.h"
 #include "time_sync.h"
 #include "font_size.h"
+#include "ui_state.h"
+#include "weather_service.h"
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -861,9 +863,9 @@ static esp_err_t font_size_post_handler(httpd_req_t *req)
     }
     
     int preset = size_item->valueint;
-    if (preset < 0 || preset > 6) {
+    if (preset < 0 || preset > 9) {
         cJSON_Delete(json);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Font size out of range (0-6)");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Font size out of range (0-9)");
         return ESP_FAIL;
     }
     
@@ -879,6 +881,102 @@ static esp_err_t font_size_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Weather zip code API handlers
+static esp_err_t weather_zip_get_handler(httpd_req_t *req)
+{
+    char zip_code[16] = {0};
+    weather_service_get_zip_code(zip_code, sizeof(zip_code));
+    
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "zip_code", zip_code);
+    
+    char *response = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, response);
+    free(response);
+    return ESP_OK;
+}
+
+static esp_err_t weather_zip_post_handler(httpd_req_t *req)
+{
+    if (req->content_len > MAX_POST_SIZE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+    
+    char *buf = malloc(req->content_len + 1);
+    if (!buf) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    int received = httpd_req_recv(req, buf, req->content_len);
+    if (received <= 0) {
+        free(buf);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    buf[received] = '\0';
+    
+    cJSON *json = cJSON_Parse(buf);
+    free(buf);
+    
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    cJSON *zip_item = cJSON_GetObjectItem(json, "zip_code");
+    if (zip_item && cJSON_IsString(zip_item)) {
+        weather_service_set_zip_code(zip_item->valuestring);
+    }
+    
+    cJSON_Delete(json);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
+// Weather data API handler
+static esp_err_t weather_data_get_handler(httpd_req_t *req)
+{
+    weather_data_t weather = {0};
+    esp_err_t ret = ESP_FAIL;
+    
+    // Try to get cached data first
+    if (weather_service_get_cached(&weather) != ESP_OK) {
+        // Cache miss or expired, fetch new data
+        ret = weather_service_fetch(&weather);
+    } else {
+        ret = ESP_OK;
+    }
+    
+    cJSON *json = cJSON_CreateObject();
+    
+    if (ret == ESP_OK && weather.valid) {
+        cJSON_AddNumberToObject(json, "temperature", weather.temperature);
+        cJSON_AddNumberToObject(json, "humidity", weather.humidity);
+        cJSON_AddNumberToObject(json, "wind_speed", weather.wind_speed);
+        cJSON_AddNumberToObject(json, "weather_code", weather.weather_code);
+        cJSON_AddStringToObject(json, "condition", weather.condition);
+        cJSON_AddBoolToObject(json, "valid", true);
+    } else {
+        cJSON_AddBoolToObject(json, "valid", false);
+        cJSON_AddStringToObject(json, "error", "Failed to fetch weather data");
+    }
+    
+    char *response = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, response);
+    free(response);
+    return ESP_OK;
+}
+
 void web_server_init(const char *ssid)
 {
     ap_ssid = ssid;
@@ -889,7 +987,7 @@ httpd_handle_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = WEB_SERVER_PORT;
-    config.max_uri_handlers = 35;  // Increased for all routes (sections, static files, API endpoints, widget configs)
+    config.max_uri_handlers = 40;  // Increased for all routes (sections, static files, API endpoints, widget configs, weather)
     
     httpd_handle_t server = NULL;
     
@@ -1034,6 +1132,33 @@ httpd_handle_t web_server_start(void)
             .user_ctx  = NULL
         };
         httpd_register_uri_handler(server, &font_size_post_uri);
+        
+        // Weather zip code API - GET
+        httpd_uri_t weather_zip_get_uri = {
+            .uri       = "/api/weather/zip-code",
+            .method    = HTTP_GET,
+            .handler   = weather_zip_get_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &weather_zip_get_uri);
+        
+        // Weather zip code API - POST
+        httpd_uri_t weather_zip_post_uri = {
+            .uri       = "/api/weather/zip-code",
+            .method    = HTTP_POST,
+            .handler   = weather_zip_post_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &weather_zip_post_uri);
+        
+        // Weather data API - GET
+        httpd_uri_t weather_data_get_uri = {
+            .uri       = "/api/weather/data",
+            .method    = HTTP_GET,
+            .handler   = weather_data_get_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &weather_data_get_uri);
         
         // Widget API - GET list
         httpd_uri_t widgets_get_uri = {

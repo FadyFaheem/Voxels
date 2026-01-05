@@ -20,7 +20,8 @@ typedef enum {
 
 typedef struct {
     timer_mode_t mode;
-    int duration_seconds;  // For countdown
+    int duration_seconds;  // For countdown (current value)
+    int initial_duration_seconds;  // For countdown (saved/initial value to restore on reset)
     int elapsed_seconds;   // For stopwatch
     bool running;
     bool paused;
@@ -29,6 +30,7 @@ typedef struct {
 static timer_config_t timer_config = {
     .mode = TIMER_MODE_COUNTDOWN,
     .duration_seconds = 300,  // 5 minutes default
+    .initial_duration_seconds = 300,  // 5 minutes default
     .elapsed_seconds = 0,
     .running = false,
     .paused = false
@@ -36,7 +38,6 @@ static timer_config_t timer_config = {
 
 static lv_obj_t *timer_container = NULL;
 static lv_obj_t *time_label = NULL;
-static lv_obj_t *mode_label = NULL;
 static lv_obj_t *progress_bar = NULL;
 static lv_obj_t *status_label = NULL;
 static lv_obj_t *start_pause_btn = NULL;
@@ -78,13 +79,6 @@ static void timer_widget_show(void)
     lv_obj_set_flex_align(timer_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(timer_container, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Mode label
-    mode_label = lv_label_create(timer_container);
-    lv_label_set_text(mode_label, timer_config.mode == TIMER_MODE_COUNTDOWN ? "Countdown Timer" : "Stopwatch");
-    lv_obj_set_style_text_font(mode_label, font_size_get_medium(), 0);
-    lv_obj_set_style_text_color(mode_label, WIDGET_COLOR_MUTED, 0);
-    lv_obj_set_style_margin_bottom(mode_label, 20, 0);
-    
     // Time display
     time_label = lv_label_create(timer_container);
     char time_str[32];
@@ -125,7 +119,6 @@ static void timer_widget_show(void)
     lv_obj_set_flex_flow(btn_container, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(btn_container, 0, 0);
-    lv_obj_set_style_gap(btn_container, 20, 0);
     lv_obj_clear_flag(btn_container, LV_OBJ_FLAG_SCROLLABLE);
     
     // Start/Pause button
@@ -134,11 +127,12 @@ static void timer_widget_show(void)
     lv_obj_set_style_bg_color(start_pause_btn, WIDGET_COLOR_ACCENT, 0);
     lv_obj_set_style_bg_opa(start_pause_btn, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(start_pause_btn, 12, 0);
+    lv_obj_set_style_margin_right(start_pause_btn, 20, 0); // Gap between buttons
     lv_obj_add_event_cb(start_pause_btn, start_pause_btn_event_cb, LV_EVENT_CLICKED, NULL);
     
     lv_obj_t *start_pause_label = lv_label_create(start_pause_btn);
     lv_label_set_text(start_pause_label, timer_config.running ? "Pause" : "Start");
-    lv_obj_set_style_text_font(start_pause_label, font_size_get_large(), 0);
+    lv_obj_set_style_text_font(start_pause_label, &lv_font_montserrat_20, 0); // Fixed font for buttons
     lv_obj_set_style_text_color(start_pause_label, lv_color_white(), 0);
     lv_obj_center(start_pause_label);
     
@@ -152,7 +146,7 @@ static void timer_widget_show(void)
     
     lv_obj_t *reset_label = lv_label_create(reset_btn);
     lv_label_set_text(reset_label, "Reset");
-    lv_obj_set_style_text_font(reset_label, font_size_get_large(), 0);
+    lv_obj_set_style_text_font(reset_label, &lv_font_montserrat_20, 0); // Fixed font for buttons
     lv_obj_set_style_text_color(reset_label, lv_color_white(), 0);
     lv_obj_center(reset_label);
     
@@ -165,7 +159,6 @@ static void timer_widget_show(void)
         lv_obj_set_flex_flow(time_adjust_container, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(time_adjust_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_all(time_adjust_container, 0, 0);
-        lv_obj_set_style_gap(time_adjust_container, 15, 0);
         lv_obj_set_style_margin_top(time_adjust_container, 20, 0);
         lv_obj_clear_flag(time_adjust_container, LV_OBJ_FLAG_SCROLLABLE);
         
@@ -174,10 +167,11 @@ static void timer_widget_show(void)
         lv_obj_set_size(btn_minus1, 80, 50);
         lv_obj_set_style_bg_color(btn_minus1, lv_color_hex(0x333333), 0);
         lv_obj_set_style_radius(btn_minus1, 8, 0);
+        lv_obj_set_style_margin_right(btn_minus1, 15, 0); // Gap between buttons
         lv_obj_add_event_cb(btn_minus1, time_adjust_btn_event_cb, LV_EVENT_CLICKED, (void*)-60);
         lv_obj_t *label_minus1 = lv_label_create(btn_minus1);
         lv_label_set_text(label_minus1, "-1m");
-        lv_obj_set_style_text_font(label_minus1, font_size_get_normal(), 0);
+        lv_obj_set_style_text_font(label_minus1, &lv_font_montserrat_16, 0); // Fixed font for buttons
         lv_obj_center(label_minus1);
         
         // -10 sec button
@@ -185,10 +179,11 @@ static void timer_widget_show(void)
         lv_obj_set_size(btn_minus10, 80, 50);
         lv_obj_set_style_bg_color(btn_minus10, lv_color_hex(0x333333), 0);
         lv_obj_set_style_radius(btn_minus10, 8, 0);
+        lv_obj_set_style_margin_right(btn_minus10, 15, 0); // Gap between buttons
         lv_obj_add_event_cb(btn_minus10, time_adjust_btn_event_cb, LV_EVENT_CLICKED, (void*)-10);
         lv_obj_t *label_minus10 = lv_label_create(btn_minus10);
         lv_label_set_text(label_minus10, "-10s");
-        lv_obj_set_style_text_font(label_minus10, font_size_get_normal(), 0);
+        lv_obj_set_style_text_font(label_minus10, &lv_font_montserrat_16, 0); // Fixed font for buttons
         lv_obj_center(label_minus10);
         
         // +10 sec button
@@ -196,10 +191,11 @@ static void timer_widget_show(void)
         lv_obj_set_size(btn_plus10, 80, 50);
         lv_obj_set_style_bg_color(btn_plus10, lv_color_hex(0x333333), 0);
         lv_obj_set_style_radius(btn_plus10, 8, 0);
+        lv_obj_set_style_margin_right(btn_plus10, 15, 0); // Gap between buttons
         lv_obj_add_event_cb(btn_plus10, time_adjust_btn_event_cb, LV_EVENT_CLICKED, (void*)10);
         lv_obj_t *label_plus10 = lv_label_create(btn_plus10);
         lv_label_set_text(label_plus10, "+10s");
-        lv_obj_set_style_text_font(label_plus10, font_size_get_normal(), 0);
+        lv_obj_set_style_text_font(label_plus10, &lv_font_montserrat_16, 0); // Fixed font for buttons
         lv_obj_center(label_plus10);
         
         // +1 min button
@@ -210,7 +206,7 @@ static void timer_widget_show(void)
         lv_obj_add_event_cb(btn_plus1, time_adjust_btn_event_cb, LV_EVENT_CLICKED, (void*)60);
         lv_obj_t *label_plus1 = lv_label_create(btn_plus1);
         lv_label_set_text(label_plus1, "+1m");
-        lv_obj_set_style_text_font(label_plus1, font_size_get_normal(), 0);
+        lv_obj_set_style_text_font(label_plus1, &lv_font_montserrat_16, 0); // Fixed font for buttons
         lv_obj_center(label_plus1);
         
         // Show/hide adjustment buttons based on timer state
@@ -231,23 +227,30 @@ static void timer_widget_show(void)
 
 static void timer_widget_hide(void)
 {
+    bsp_display_lock(0);
+    
+    // Stop timer first
     if (timer_timer) {
         lv_timer_delete(timer_timer);
         timer_timer = NULL;
     }
     
-    if (timer_container) {
-        lv_obj_delete(timer_container);
-        timer_container = NULL;
-    }
-    
+    // Clear pointers before deletion to prevent callback from accessing deleted objects
+    lv_obj_t *container_to_delete = timer_container;
+    timer_container = NULL;
     time_label = NULL;
-    mode_label = NULL;
     progress_bar = NULL;
     status_label = NULL;
     start_pause_btn = NULL;
     reset_btn = NULL;
     time_adjust_container = NULL;
+    
+    // Delete container after clearing pointers
+    if (container_to_delete) {
+        lv_obj_delete(container_to_delete);
+    }
+    
+    bsp_display_unlock();
     
     ESP_LOGI(TAG, "Timer widget hidden");
 }
@@ -274,11 +277,22 @@ static void timer_update_cb(lv_timer_t *timer)
 {
     (void)timer;
     
+    // Check if widget is still active
+    if (!timer_container || !time_label) {
+        return;
+    }
+    
     if (!timer_config.running) {
         return;
     }
     
     bsp_display_lock(0);
+    
+    // Double-check after acquiring lock (widget might have been hidden)
+    if (!timer_container || !time_label) {
+        bsp_display_unlock();
+        return;
+    }
     
     if (timer_config.mode == TIMER_MODE_COUNTDOWN) {
         timer_config.duration_seconds--;

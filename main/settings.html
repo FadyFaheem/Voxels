@@ -3,6 +3,74 @@
   <p class="subtitle">Advanced device settings</p>
 
   <form id="settingsForm">
+    <h2>Device</h2>
+    
+    <div class="form-group">
+      <label for="deviceName">Device Name</label>
+      <input
+        type="text"
+        id="deviceName"
+        name="device_name"
+        placeholder="My Voxels Display"
+        maxlength="63"
+      />
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        A friendly name for your device. This will be shown in the status screen.
+      </p>
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>WiFi Network</h2>
+    
+    <div class="form-group">
+      <label for="wifiSsid">WiFi Network Name (SSID)</label>
+      <input
+        type="text"
+        id="wifiSsid"
+        name="wifi_ssid"
+        placeholder="Enter network name"
+        maxlength="32"
+      />
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        The name of your WiFi network. Leave blank to keep current setting.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label for="wifiPass">WiFi Password</label>
+      <input
+        type="password"
+        id="wifiPass"
+        name="wifi_pass"
+        placeholder="WiFi password"
+        maxlength="64"
+      />
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        WiFi password. Leave blank to keep current password. Device will reconnect after saving.
+      </p>
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>Weather</h2>
+    
+    <div class="form-group">
+      <label for="weatherZipCode">Zip Code</label>
+      <input
+        type="text"
+        id="weatherZipCode"
+        name="weather_zip_code"
+        placeholder="90210"
+        maxlength="10"
+      />
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        Enter your zip code or postal code for weather data. Weather widget will use this location.
+      </p>
+    </div>
+
+    <div class="divider"></div>
+
     <h2>Time & Date</h2>
     
     <div class="form-group">
@@ -26,7 +94,40 @@
       </p>
     </div>
 
+    <div class="divider"></div>
+
+    <h2>Display</h2>
+    
+    <div class="form-group">
+      <label for="fontSize">Font Size</label>
+      <select id="fontSize" name="fontSize">
+        <option value="0">Tiny</option>
+        <option value="1">Small</option>
+        <option value="2" selected>Normal</option>
+        <option value="3">Medium</option>
+        <option value="4">Medium-Large</option>
+        <option value="5">Large</option>
+        <option value="6">Extra Large</option>
+        <option value="7">XX Large</option>
+        <option value="8">Huge</option>
+        <option value="9">Giant</option>
+      </select>
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        Adjust the font size for all widgets. Changes will apply immediately.
+      </p>
+    </div>
+
     <button type="submit" class="btn" id="saveSettingsBtn">Save Settings</button>
     <div id="settingsMessage" class="message"></div>
   </form>
+
+  <div class="divider"></div>
+
+  <div class="danger-zone">
+    <h2>⚠️ Danger Zone</h2>
+    <p>
+      Reset all settings and start fresh. This will erase all saved configuration including WiFi credentials, device name, and widget settings. The device will restart.
+    </p>
+    <button type="button" class="btn btn-danger" id="factoryResetBtn">Factory Reset</button>
+  </div>
 </div>

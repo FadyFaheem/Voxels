@@ -70,4 +70,26 @@ const api = {
   async setTimezone(timezone) {
     return this.post("/api/timezone", { timezone: timezone });
   },
+
+  // Font size API
+  async getFontSize() {
+    return this.get("/api/font-size");
+  },
+
+  async setFontSize(fontSize) {
+    return this.post("/api/font-size", { font_size: fontSize });
+  },
+
+  // Weather API
+  async getWeatherZipCode() {
+    return this.get("/api/weather/zip-code");
+  },
+
+  async setWeatherZipCode(zipCode) {
+    return this.post("/api/weather/zip-code", { zip_code: zipCode });
+  },
+
+  async getWeatherData() {
+    return this.get("/api/weather/data");
+  },
 };

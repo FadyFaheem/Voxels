@@ -16,13 +16,16 @@ extern "C" {
  * @brief Font size presets
  */
 typedef enum {
-    FONT_SIZE_SMALL = 0,      // 12px
-    FONT_SIZE_NORMAL = 1,     // 16px
-    FONT_SIZE_MEDIUM = 2,     // 18px
-    FONT_SIZE_LARGE = 3,      // 20px
-    FONT_SIZE_XLARGE = 4,     // 24px
-    FONT_SIZE_XXLARGE = 5,    // 26px
-    FONT_SIZE_HUGE = 6        // 48px
+    FONT_SIZE_TINY = 0,       // Extra small (12px base)
+    FONT_SIZE_SMALL = 1,      // Small (12-16px)
+    FONT_SIZE_NORMAL = 2,     // Normal (16px base)
+    FONT_SIZE_MEDIUM = 3,     // Medium (18px base)
+    FONT_SIZE_MEDIUM_LARGE = 4, // Medium-Large (20px base)
+    FONT_SIZE_LARGE = 5,      // Large (20-22px)
+    FONT_SIZE_XLARGE = 6,     // Extra Large (24px base)
+    FONT_SIZE_XXLARGE = 7,    // XX Large (26px base)
+    FONT_SIZE_HUGE = 8,       // Huge (48px for main display)
+    FONT_SIZE_GIANT = 9       // Giant (48px everywhere)
 } font_size_preset_t;
 
 /**
