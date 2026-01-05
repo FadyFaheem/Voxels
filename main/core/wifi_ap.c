@@ -18,6 +18,9 @@ static const char *TAG = "wifi_ap";
 // Generated SSID
 static char wifi_ssid[32] = {0};
 
+// AP state
+static bool ap_active = false;
+
 // Callbacks
 static wifi_station_cb_t connect_callback = NULL;
 static wifi_station_cb_t disconnect_callback = NULL;
@@ -117,6 +120,8 @@ esp_err_t wifi_ap_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     
+    ap_active = true;
+    
     ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Password: %s", wifi_ssid, WIFI_AP_PASS);
     ESP_LOGI(TAG, "Connect to this network and visit http://%s", AP_IP_ADDR);
     
@@ -136,5 +141,37 @@ const char *wifi_ap_get_password(void)
 const char *wifi_ap_get_ip(void)
 {
     return AP_IP_ADDR;
+}
+
+esp_err_t wifi_ap_stop(void)
+{
+    if (!ap_active) {
+        ESP_LOGW(TAG, "AP already stopped");
+        return ESP_OK;
+    }
+    
+    ESP_LOGI(TAG, "Stopping WiFi AP - switching to STA only mode");
+    
+    // Get current mode
+    wifi_mode_t mode;
+    esp_wifi_get_mode(&mode);
+    
+    if (mode == WIFI_MODE_APSTA) {
+        // Switch to STA only
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    } else if (mode == WIFI_MODE_AP) {
+        // Just stop WiFi (will be restarted if needed)
+        ESP_ERROR_CHECK(esp_wifi_stop());
+    }
+    
+    ap_active = false;
+    ESP_LOGI(TAG, "WiFi AP stopped");
+    
+    return ESP_OK;
+}
+
+bool wifi_ap_is_active(void)
+{
+    return ap_active;
 }
 

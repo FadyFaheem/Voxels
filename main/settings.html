@@ -1,0 +1,32 @@
+<div class="container">
+  <h1>Settings</h1>
+  <p class="subtitle">Advanced device settings</p>
+
+  <form id="settingsForm">
+    <h2>Time & Date</h2>
+    
+    <div class="form-group">
+      <label for="timezone">Timezone</label>
+      <select id="timezone" name="timezone">
+        <option value="UTC0">UTC (Coordinated Universal Time)</option>
+        <option value="EST5EDT">Eastern Time (US & Canada)</option>
+        <option value="CST6CDT">Central Time (US & Canada)</option>
+        <option value="MST7MDT">Mountain Time (US & Canada)</option>
+        <option value="PST8PDT">Pacific Time (US & Canada)</option>
+        <option value="GMT0BST">London (GMT/BST)</option>
+        <option value="CET-1CEST">Central European Time</option>
+        <option value="EET-2EEST">Eastern European Time</option>
+        <option value="JST-9">Japan Standard Time</option>
+        <option value="CST-8">China Standard Time</option>
+        <option value="IST-5:30">India Standard Time</option>
+        <option value="AEST-10AEDT">Australian Eastern Time</option>
+      </select>
+      <p style="color: #888; font-size: 0.8rem; margin-top: 5px;">
+        Select your timezone. The clock widget will display time in this timezone.
+      </p>
+    </div>
+
+    <button type="submit" class="btn" id="saveSettingsBtn">Save Settings</button>
+    <div id="settingsMessage" class="message"></div>
+  </form>
+</div>

@@ -1,0 +1,154 @@
+<div class="container" id="setupScreen">
+  <h1>Voxels Setup</h1>
+  <p class="subtitle">Configure your device</p>
+
+  <div class="status">
+    <div class="dot"></div>
+    <span>Connected to %APSSID%</span>
+  </div>
+
+  <form id="setupForm">
+    <h2>Device Settings</h2>
+    <div class="form-group">
+      <label for="deviceName">Device Name</label>
+      <input
+        type="text"
+        id="deviceName"
+        name="device_name"
+        placeholder="My Voxels Display"
+        value="%DEVICE_NAME%"
+      />
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>WiFi Network</h2>
+
+    <button
+      type="button"
+      class="btn btn-secondary"
+      id="scanBtn"
+      onclick="scanNetworks()"
+    >
+      Scan for Networks
+    </button>
+
+    <div id="networkList" class="network-list hidden"></div>
+
+    <div class="form-group" id="ssidInputGroup">
+      <label for="wifiSsid">WiFi Network Name</label>
+      <input
+        type="text"
+        id="wifiSsid"
+        name="wifi_ssid"
+        placeholder="Enter network name"
+        value="%WIFI_SSID%"
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="wifiPass">WiFi Password</label>
+      <input
+        type="password"
+        id="wifiPass"
+        name="wifi_pass"
+        placeholder="WiFi password"
+      />
+    </div>
+
+    <button type="submit" class="btn" id="saveBtn">Save & Connect</button>
+
+    <div id="message" class="message"></div>
+  </form>
+
+  <div class="danger-zone">
+    <h2>⚠️ Danger Zone</h2>
+    <p>
+      Reset all settings and start fresh. This will erase all saved
+      configuration including WiFi credentials.
+    </p>
+    <button type="button" class="btn btn-danger" onclick="showResetConfirm()">
+      Factory Reset
+    </button>
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">AP Network</span>
+      <span class="info-value">%APSSID%</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">IP Address</span>
+      <span class="info-value">192.168.4.1</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Storage</span>
+      <span class="info-value">%STORAGE%</span>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Confirmation Modal -->
+<div class="modal-overlay hidden" id="resetModal">
+  <div class="modal">
+    <h3>⚠️ Factory Reset</h3>
+    <p>
+      Are you sure you want to reset all settings? This action cannot be undone.
+      The device will restart.
+    </p>
+    <div class="modal-buttons">
+      <button class="btn btn-cancel" onclick="hideResetConfirm()">
+        Cancel
+      </button>
+      <button class="btn btn-confirm-danger" onclick="performFactoryReset()">
+        Reset
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Success Screen -->
+<div class="container hidden" id="successScreen">
+  <div class="success-icon">✓</div>
+  <h1 class="success-title">Setup Complete!</h1>
+  <p class="success-subtitle">
+    Your Voxels device is now configured and ready to use.
+  </p>
+
+  <div id="connectingStatus" class="connecting-status">
+    <div class="connecting-spinner"></div>
+    <span>Connecting to WiFi...</span>
+  </div>
+
+  <div id="ipDisplay" class="ip-display hidden">
+    <div class="ip-label">Access your device at</div>
+    <div class="ip-address" id="networkIp">---.---.---.---</div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Device Name</span>
+      <span class="info-value" id="savedDeviceName">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">WiFi Network</span>
+      <span class="info-value" id="savedWifiSsid">-</span>
+    </div>
+  </div>
+
+  <div class="instructions">
+    <h3>Next Steps</h3>
+    <ol>
+      <li>
+        Connect your phone/computer to
+        <strong id="targetNetwork">your WiFi network</strong>
+      </li>
+      <li>Open a browser and go to the IP address shown above</li>
+      <li>Configure additional settings through the web interface</li>
+    </ol>
+  </div>
+
+  <button class="btn btn-outline" onclick="showSetupScreen()">
+    ← Back to Settings
+  </button>
+</div>

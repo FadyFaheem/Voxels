@@ -181,7 +181,10 @@ esp_err_t bsp_sdcard_mount(void)
         .allocation_unit_size = 16 * 1024
     };
 
-    const sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    // Use slower clock speed for better compatibility with large SDXC cards
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_PROBING;  // 400kHz - slowest, for debugging
+    
     const sdmmc_slot_config_t slot_config = {
         .clk = BSP_SD_CLK,
         .cmd = BSP_SD_CMD,

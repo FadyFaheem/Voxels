@@ -50,6 +50,12 @@ bool sd_db_is_ready(void);
 sd_db_status_t sd_db_get_status(void);
 
 /**
+ * @brief Get the storage type being used
+ * @return "SD Card", "NVS Flash", or "None"
+ */
+const char* sd_db_get_storage_type(void);
+
+/**
  * @brief Wipe and reinitialize the SD card
  * @return ESP_OK on success
  */

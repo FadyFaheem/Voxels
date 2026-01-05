@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -41,6 +42,18 @@ const char *wifi_ap_get_password(void);
  * @return Pointer to IP address string
  */
 const char *wifi_ap_get_ip(void);
+
+/**
+ * @brief Stop WiFi Access Point (switch to STA only mode)
+ * @return ESP_OK on success
+ */
+esp_err_t wifi_ap_stop(void);
+
+/**
+ * @brief Check if AP is currently running
+ * @return true if AP is active
+ */
+bool wifi_ap_is_active(void);
 
 #ifdef __cplusplus
 }

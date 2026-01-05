@@ -18,6 +18,7 @@ static lv_obj_t *qr_code = NULL;
 static lv_obj_t *qr_container = NULL;
 static lv_obj_t *info_label = NULL;
 static lv_obj_t *subtitle_label = NULL;
+static lv_obj_t *pass_label = NULL;
 static lv_obj_t *main_container = NULL;
 
 // QR code state
@@ -101,8 +102,8 @@ void qr_ui_show(void)
     lv_obj_set_style_text_font(subtitle_label, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(subtitle_label, lv_color_hex(0x888888), 0);
     
-    // Password hint
-    lv_obj_t *pass_label = lv_label_create(main_container);
+    // Password hint (only shown for WiFi QR)
+    pass_label = lv_label_create(main_container);
     lv_label_set_text_fmt(pass_label, "Password: %s", wifi_pass);
     lv_obj_set_style_text_font(pass_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(pass_label, lv_color_hex(0x666666), 0);
@@ -144,6 +145,7 @@ void qr_ui_cleanup(void)
     qr_container = NULL;
     info_label = NULL;
     subtitle_label = NULL;
+    pass_label = NULL;
 }
 
 void qr_ui_show_url(void)
@@ -221,6 +223,11 @@ static void update_qr_content(bool to_url)
             lv_obj_set_style_text_color(subtitle_label, lv_color_hex(0x4caf50), 0);
             lv_obj_invalidate(subtitle_label);
         }
+        
+        // Hide password when showing URL QR
+        if (pass_label) {
+            lv_obj_add_flag(pass_label, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
         // WiFi QR code format: WIFI:T:WPA;S:<SSID>;P:<PASSWORD>;;
         char wifi_qr[128];
@@ -236,6 +243,11 @@ static void update_qr_content(bool to_url)
             lv_label_set_text_fmt(subtitle_label, "Network: %s", wifi_ssid);
             lv_obj_set_style_text_color(subtitle_label, lv_color_hex(0x888888), 0);
             lv_obj_invalidate(subtitle_label);
+        }
+        
+        // Show password when showing WiFi QR
+        if (pass_label) {
+            lv_obj_clear_flag(pass_label, LV_OBJ_FLAG_HIDDEN);
         }
     }
 }
